@@ -230,7 +230,7 @@ export GLUE_DIR=/mnt/sda1/transdat/bert-demo/bert/data
 export TRAINED_CLASSIFIER=/mnt/sda1/transdat/bert-demo/bert/output
 export EXP_NAME=mobile_0
 
-sudo python run_mobile.py \
+sudo python run_classifier.py \
   --task_name=setiment \
   --do_train=true \
   --do_eval=true \
@@ -245,7 +245,7 @@ sudo python run_mobile.py \
   --output_dir=$TRAINED_CLASSIFIER/$EXP_NAME
 ```
 由于相关参数不会轻易改动这边直接把参数写到文件里面
-只需要执行 python run_classifier.py --do_train=true --do_eval=true 
+只需要执行 python run_classifier.py  --do_train=true  --do_eval=true 就可以了 
 由于数据比较小，训练是比较快的，训练完成后，可以在输出目录得到模型文件，这里的模型文件格式是.ckpt的。
 训练结果：
 ```
