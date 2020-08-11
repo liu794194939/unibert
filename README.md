@@ -1,1046 +1,547 @@
-# BERT
+# BERT模型从训练到部署全流程
 
-**\*\*\*\*\* New May 31st, 2019: Whole Word Masking Models \*\*\*\*\***
+Tag: BERT 训练 部署
+## 缘起
+在群里看到许多朋友在使用BERT模型，网上多数文章只提到了模型的训练方法，后面的生产部署及调用并没有说明。
+这段时间使用BERT模型完成了从数据准备到生产部署的全流程，在这里整理出来，方便大家参考。
 
-This is a release of several new models which were the result of an improvement
-the pre-processing code.
+在下面我将以一个“手机评论的情感分类”为例子，简要说明从训练到部署的全部流程。最终完成后可以使用一个网页进行交互，实时地对输入的评论语句进行分类判断。
 
-In the original pre-processing code, we randomly select WordPiece tokens to
-mask. For example:
+## 基本架构
 
-`Input Text: the man jumped up , put his basket on phil ##am ##mon ' s head`
-`Original Masked Input: [MASK] man [MASK] up , put his [MASK] on phil
-[MASK] ##mon ' s head`
+基本架构为：
 
-The new technique is called Whole Word Masking. In this case, we always mask
-*all* of the the tokens corresponding to a word at once. The overall masking
-rate remains the same.
-
-`Whole Word Masked Input: the man [MASK] up , put his basket on [MASK] [MASK]
-[MASK] ' s head`
-
-The training is identical -- we still predict each masked WordPiece token
-independently. The improvement comes from the fact that the original prediction
-task was too 'easy' for words that had been split into multiple WordPieces.
-
-This can be enabled during data generation by passing the flag
-`--do_whole_word_mask=True` to `create_pretraining_data.py`.
-
-Pre-trained models with Whole Word Masking are linked below. The data and
-training were otherwise identical, and the models have identical structure and
-vocab to the original models. We only include BERT-Large models. When using
-these models, please make it clear in the paper that you are using the Whole
-Word Masking variant of BERT-Large.
-
-*   **[`BERT-Large, Uncased (Whole Word Masking)`](https://storage.googleapis.com/bert_models/2019_05_30/wwm_uncased_L-24_H-1024_A-16.zip)**:
-    24-layer, 1024-hidden, 16-heads, 340M parameters
-
-*   **[`BERT-Large, Cased (Whole Word Masking)`](https://storage.googleapis.com/bert_models/2019_05_30/wwm_cased_L-24_H-1024_A-16.zip)**:
-    24-layer, 1024-hidden, 16-heads, 340M parameters
-
-Model                                    | SQUAD 1.1 F1/EM | Multi NLI Accuracy
----------------------------------------- | :-------------: | :----------------:
-BERT-Large, Uncased (Original)           | 91.0/84.3       | 86.05
-BERT-Large, Uncased (Whole Word Masking) | 92.8/86.7       | 87.07
-BERT-Large, Cased (Original)             | 91.5/84.8       | 86.09
-BERT-Large, Cased (Whole Word Masking)   | 92.9/86.7       | 86.46
-
-**\*\*\*\*\* New February 7th, 2019: TfHub Module \*\*\*\*\***
-
-BERT has been uploaded to [TensorFlow Hub](https://tfhub.dev). See
-`run_classifier_with_tfhub.py` for an example of how to use the TF Hub module,
-or run an example in the browser on
-[Colab](https://colab.sandbox.google.com/github/google-research/bert/blob/master/predicting_movie_reviews_with_bert_on_tf_hub.ipynb).
-
-**\*\*\*\*\* New November 23rd, 2018: Un-normalized multilingual model + Thai +
-Mongolian \*\*\*\*\***
-
-We uploaded a new multilingual model which does *not* perform any normalization
-on the input (no lower casing, accent stripping, or Unicode normalization), and
-additionally inclues Thai and Mongolian.
-
-**It is recommended to use this version for developing multilingual models,
-especially on languages with non-Latin alphabets.**
-
-This does not require any code changes, and can be downloaded here:
-
-*   **[`BERT-Base, Multilingual Cased`](https://storage.googleapis.com/bert_models/2018_11_23/multi_cased_L-12_H-768_A-12.zip)**:
-    104 languages, 12-layer, 768-hidden, 12-heads, 110M parameters
-
-**\*\*\*\*\* New November 15th, 2018: SOTA SQuAD 2.0 System \*\*\*\*\***
-
-We released code changes to reproduce our 83% F1 SQuAD 2.0 system, which is
-currently 1st place on the leaderboard by 3%. See the SQuAD 2.0 section of the
-README for details.
-
-**\*\*\*\*\* New November 5th, 2018: Third-party PyTorch and Chainer versions of
-BERT available \*\*\*\*\***
-
-NLP researchers from HuggingFace made a
-[PyTorch version of BERT available](https://github.com/huggingface/pytorch-pretrained-BERT)
-which is compatible with our pre-trained checkpoints and is able to reproduce
-our results. Sosuke Kobayashi also made a
-[Chainer version of BERT available](https://github.com/soskek/bert-chainer)
-(Thanks!) We were not involved in the creation or maintenance of the PyTorch
-implementation so please direct any questions towards the authors of that
-repository.
-
-**\*\*\*\*\* New November 3rd, 2018: Multilingual and Chinese models available
-\*\*\*\*\***
-
-We have made two new BERT models available:
-
-*   **[`BERT-Base, Multilingual`](https://storage.googleapis.com/bert_models/2018_11_03/multilingual_L-12_H-768_A-12.zip)
-    (Not recommended, use `Multilingual Cased` instead)**: 102 languages,
-    12-layer, 768-hidden, 12-heads, 110M parameters
-*   **[`BERT-Base, Chinese`](https://storage.googleapis.com/bert_models/2018_11_03/chinese_L-12_H-768_A-12.zip)**:
-    Chinese Simplified and Traditional, 12-layer, 768-hidden, 12-heads, 110M
-    parameters
-
-We use character-based tokenization for Chinese, and WordPiece tokenization for
-all other languages. Both models should work out-of-the-box without any code
-changes. We did update the implementation of `BasicTokenizer` in
-`tokenization.py` to support Chinese character tokenization, so please update if
-you forked it. However, we did not change the tokenization API.
-
-For more, see the
-[Multilingual README](https://github.com/google-research/bert/blob/master/multilingual.md).
-
-**\*\*\*\*\* End new information \*\*\*\*\***
-
-## Introduction
-
-**BERT**, or **B**idirectional **E**ncoder **R**epresentations from
-**T**ransformers, is a new method of pre-training language representations which
-obtains state-of-the-art results on a wide array of Natural Language Processing
-(NLP) tasks.
-
-Our academic paper which describes BERT in detail and provides full results on a
-number of tasks can be found here:
-[https://arxiv.org/abs/1810.04805](https://arxiv.org/abs/1810.04805).
-
-To give a few numbers, here are the results on the
-[SQuAD v1.1](https://rajpurkar.github.io/SQuAD-explorer/) question answering
-task:
-
-SQuAD v1.1 Leaderboard (Oct 8th 2018) | Test EM  | Test F1
-------------------------------------- | :------: | :------:
-1st Place Ensemble - BERT             | **87.4** | **93.2**
-2nd Place Ensemble - nlnet            | 86.0     | 91.7
-1st Place Single Model - BERT         | **85.1** | **91.8**
-2nd Place Single Model - nlnet        | 83.5     | 90.1
-
-And several natural language inference tasks:
-
-System                  | MultiNLI | Question NLI | SWAG
------------------------ | :------: | :----------: | :------:
-BERT                    | **86.7** | **91.1**     | **86.3**
-OpenAI GPT (Prev. SOTA) | 82.2     | 88.1         | 75.0
-
-Plus many other tasks.
-
-Moreover, these results were all obtained with almost no task-specific neural
-network architecture design.
-
-If you already know what BERT is and you just want to get started, you can
-[download the pre-trained models](#pre-trained-models) and
-[run a state-of-the-art fine-tuning](#fine-tuning-with-bert) in only a few
-minutes.
-
-## What is BERT?
-
-BERT is a method of pre-training language representations, meaning that we train
-a general-purpose "language understanding" model on a large text corpus (like
-Wikipedia), and then use that model for downstream NLP tasks that we care about
-(like question answering). BERT outperforms previous methods because it is the
-first *unsupervised*, *deeply bidirectional* system for pre-training NLP.
-
-*Unsupervised* means that BERT was trained using only a plain text corpus, which
-is important because an enormous amount of plain text data is publicly available
-on the web in many languages.
-
-Pre-trained representations can also either be *context-free* or *contextual*,
-and contextual representations can further be *unidirectional* or
-*bidirectional*. Context-free models such as
-[word2vec](https://www.tensorflow.org/tutorials/representation/word2vec) or
-[GloVe](https://nlp.stanford.edu/projects/glove/) generate a single "word
-embedding" representation for each word in the vocabulary, so `bank` would have
-the same representation in `bank deposit` and `river bank`. Contextual models
-instead generate a representation of each word that is based on the other words
-in the sentence.
-
-BERT was built upon recent work in pre-training contextual representations —
-including [Semi-supervised Sequence Learning](https://arxiv.org/abs/1511.01432),
-[Generative Pre-Training](https://blog.openai.com/language-unsupervised/),
-[ELMo](https://allennlp.org/elmo), and
-[ULMFit](http://nlp.fast.ai/classification/2018/05/15/introducting-ulmfit.html)
-— but crucially these models are all *unidirectional* or *shallowly
-bidirectional*. This means that each word is only contextualized using the words
-to its left (or right). For example, in the sentence `I made a bank deposit` the
-unidirectional representation of `bank` is only based on `I made a` but not
-`deposit`. Some previous work does combine the representations from separate
-left-context and right-context models, but only in a "shallow" manner. BERT
-represents "bank" using both its left and right context — `I made a ... deposit`
-— starting from the very bottom of a deep neural network, so it is *deeply
-bidirectional*.
-
-BERT uses a simple approach for this: We mask out 15% of the words in the input,
-run the entire sequence through a deep bidirectional
-[Transformer](https://arxiv.org/abs/1706.03762) encoder, and then predict only
-the masked words. For example:
-
-```
-Input: the man went to the [MASK1] . he bought a [MASK2] of milk.
-Labels: [MASK1] = store; [MASK2] = gallon
-```
-
-In order to learn relationships between sentences, we also train on a simple
-task which can be generated from any monolingual corpus: Given two sentences `A`
-and `B`, is `B` the actual next sentence that comes after `A`, or just a random
-sentence from the corpus?
-
-```
-Sentence A: the man went to the store .
-Sentence B: he bought a gallon of milk .
-Label: IsNextSentence
+```mermaid
+graph LR
+A(BERT模型服务端) --> B(API服务端)
+B-->A
+B --> C(应用端)
+C-->B
 ```
 
 ```
-Sentence A: the man went to the store .
-Sentence B: penguins are flightless .
-Label: NotNextSentence
-```
-
-We then train a large model (12-layer to 24-layer Transformer) on a large corpus
-(Wikipedia + [BookCorpus](http://yknzhu.wixsite.com/mbweb)) for a long time (1M
-update steps), and that's BERT.
-
-Using BERT has two stages: *Pre-training* and *fine-tuning*.
-
-**Pre-training** is fairly expensive (four days on 4 to 16 Cloud TPUs), but is a
-one-time procedure for each language (current models are English-only, but
-multilingual models will be released in the near future). We are releasing a
-number of pre-trained models from the paper which were pre-trained at Google.
-Most NLP researchers will never need to pre-train their own model from scratch.
-
-**Fine-tuning** is inexpensive. All of the results in the paper can be
-replicated in at most 1 hour on a single Cloud TPU, or a few hours on a GPU,
-starting from the exact same pre-trained model. SQuAD, for example, can be
-trained in around 30 minutes on a single Cloud TPU to achieve a Dev F1 score of
-91.0%, which is the single system state-of-the-art.
-
-The other important aspect of BERT is that it can be adapted to many types of
-NLP tasks very easily. In the paper, we demonstrate state-of-the-art results on
-sentence-level (e.g., SST-2), sentence-pair-level (e.g., MultiNLI), word-level
-(e.g., NER), and span-level (e.g., SQuAD) tasks with almost no task-specific
-modifications.
-
-## What has been released in this repository?
-
-We are releasing the following:
-
-*   TensorFlow code for the BERT model architecture (which is mostly a standard
-    [Transformer](https://arxiv.org/abs/1706.03762) architecture).
-*   Pre-trained checkpoints for both the lowercase and cased version of
-    `BERT-Base` and `BERT-Large` from the paper.
-*   TensorFlow code for push-button replication of the most important
-    fine-tuning experiments from the paper, including SQuAD, MultiNLI, and MRPC.
-
-All of the code in this repository works out-of-the-box with CPU, GPU, and Cloud
-TPU.
-
-## Pre-trained models
-
-We are releasing the `BERT-Base` and `BERT-Large` models from the paper.
-`Uncased` means that the text has been lowercased before WordPiece tokenization,
-e.g., `John Smith` becomes `john smith`. The `Uncased` model also strips out any
-accent markers. `Cased` means that the true case and accent markers are
-preserved. Typically, the `Uncased` model is better unless you know that case
-information is important for your task (e.g., Named Entity Recognition or
-Part-of-Speech tagging).
-
-These models are all released under the same license as the source code (Apache
-2.0).
-
-For information about the Multilingual and Chinese model, see the
-[Multilingual README](https://github.com/google-research/bert/blob/master/multilingual.md).
-
-**When using a cased model, make sure to pass `--do_lower=False` to the training
-scripts. (Or pass `do_lower_case=False` directly to `FullTokenizer` if you're
-using your own script.)**
-
-The links to the models are here (right-click, 'Save link as...' on the name):
-
-*   **[`BERT-Large, Uncased (Whole Word Masking)`](https://storage.googleapis.com/bert_models/2019_05_30/wwm_uncased_L-24_H-1024_A-16.zip)**:
-    24-layer, 1024-hidden, 16-heads, 340M parameters
-*   **[`BERT-Large, Cased (Whole Word Masking)`](https://storage.googleapis.com/bert_models/2019_05_30/wwm_cased_L-24_H-1024_A-16.zip)**:
-    24-layer, 1024-hidden, 16-heads, 340M parameters
-*   **[`BERT-Base, Uncased`](https://storage.googleapis.com/bert_models/2018_10_18/uncased_L-12_H-768_A-12.zip)**:
-    12-layer, 768-hidden, 12-heads, 110M parameters
-*   **[`BERT-Large, Uncased`](https://storage.googleapis.com/bert_models/2018_10_18/uncased_L-24_H-1024_A-16.zip)**:
-    24-layer, 1024-hidden, 16-heads, 340M parameters
-*   **[`BERT-Base, Cased`](https://storage.googleapis.com/bert_models/2018_10_18/cased_L-12_H-768_A-12.zip)**:
-    12-layer, 768-hidden, 12-heads , 110M parameters
-*   **[`BERT-Large, Cased`](https://storage.googleapis.com/bert_models/2018_10_18/cased_L-24_H-1024_A-16.zip)**:
-    24-layer, 1024-hidden, 16-heads, 340M parameters
-*   **[`BERT-Base, Multilingual Cased (New, recommended)`](https://storage.googleapis.com/bert_models/2018_11_23/multi_cased_L-12_H-768_A-12.zip)**:
-    104 languages, 12-layer, 768-hidden, 12-heads, 110M parameters
-*   **[`BERT-Base, Multilingual Uncased (Orig, not recommended)`](https://storage.googleapis.com/bert_models/2018_11_03/multilingual_L-12_H-768_A-12.zip)
-    (Not recommended, use `Multilingual Cased` instead)**: 102 languages,
-    12-layer, 768-hidden, 12-heads, 110M parameters
-*   **[`BERT-Base, Chinese`](https://storage.googleapis.com/bert_models/2018_11_03/chinese_L-12_H-768_A-12.zip)**:
-    Chinese Simplified and Traditional, 12-layer, 768-hidden, 12-heads, 110M
-    parameters
-
-Each .zip file contains three items:
-
-*   A TensorFlow checkpoint (`bert_model.ckpt`) containing the pre-trained
-    weights (which is actually 3 files).
-*   A vocab file (`vocab.txt`) to map WordPiece to word id.
-*   A config file (`bert_config.json`) which specifies the hyperparameters of
-    the model.
-
-## Fine-tuning with BERT
-
-**Important**: All results on the paper were fine-tuned on a single Cloud TPU,
-which has 64GB of RAM. It is currently not possible to re-produce most of the
-`BERT-Large` results on the paper using a GPU with 12GB - 16GB of RAM, because
-the maximum batch size that can fit in memory is too small. We are working on
-adding code to this repository which allows for much larger effective batch size
-on the GPU. See the section on [out-of-memory issues](#out-of-memory-issues) for
-more details.
-
-This code was tested with TensorFlow 1.11.0. It was tested with Python2 and
-Python3 (but more thoroughly with Python2, since this is what's used internally
-in Google).
-
-The fine-tuning examples which use `BERT-Base` should be able to run on a GPU
-that has at least 12GB of RAM using the hyperparameters given.
-
-### Fine-tuning with Cloud TPUs
-
-Most of the examples below assumes that you will be running training/evaluation
-on your local machine, using a GPU like a Titan X or GTX 1080.
-
-However, if you have access to a Cloud TPU that you want to train on, just add
-the following flags to `run_classifier.py` or `run_squad.py`:
++-------------------+
+|   应用端(HTML)    | 
++-------------------+
+         ^^
+         ||
+         VV
++-------------------+
+|     API服务端     | 
++-------------------+
+         ^^
+         ||
+         VV
++-------------------+
+|  BERT模型服务端   | 
++-------------------+
 
 ```
-  --use_tpu=True \
-  --tpu_name=$TPU_NAME
+
+
+架构说明：
+**BERT模型服务端**
+	加载模型，进行实时预测的服务；
+    使用的是 BERT-BiLSTM-CRF-NER 
+
+**API服务端** 
+	调用实时预测服务，为应用提供API接口的服务，用flask编写； 
+
+**应用端**
+	最终的应用端；
+	我这里使用一个HTML网页来实现；
+
+本项目完整源码地址：[BERT从训练到部署git源码](https://github.com/xmxoxo/BERT-train2deploy)
+项目博客地址: [BERT从训练到部署](https://blog.csdn.net/xmxoxo/article/details/89315370)
+
+附件：
+本例中训练完成的模型文件.ckpt格式及.pb格式文件，由于比较大，已放到网盘提供下载：
+```
+链接：https://pan.baidu.com/s/1DgVjRK7zicbTlAAkFp7nWw 
+提取码：8iaw 
+```
+如果你想跳过前面模型的训练过程，可以直接使用训练好的模型，来完成后面的部署。
+
+
+## 关键节点
+主要包括以下关键节点：
+* 数据准备
+* 模型训练
+* 模型格式转化
+* 服务端部署与启动
+* API服务编写与部署
+* 客户端(网页端的编写与部署）
+
+
+## 数据准备
+这里用的数据是手机的评论，数据比较简单,三个分类: -1,0,1 表示负面，中性与正面情感
+数据格式如下：
+
+```
+1	手机很好，漂亮时尚，赠品一般
+1	手机很好。包装也很完美，赠品也是收到货后马上就发货了
+1	第一次在第三方买的手机 开始很担心 不过查一下是正品 很满意
+1	很不错 续航好 系统流畅
+1	不知道真假，相信店家吧
+1	快递挺快的，荣耀10手感还是不错的，玩了会王者还不错，就是前后玻璃，
+1	流很快，手机到手感觉很酷，白色适合女士，很惊艳！常好，运行速度快，流畅！
+1	用了一天才来评价，都还可以，很满意
+1	幻影蓝很好看啊，炫彩系列时尚时尚最时尚，速度快，配送运行?做活动优惠买的，开心?
+1	快递速度快，很赞！软件更新到最新版。安装上软胶保护套拿手上不容易滑落。
+0	手机出厂贴膜好薄啊，感觉像塑料膜。其他不能发表
+0	用了一段时间，除了手机续航其它还不错。
+0	做工一般
+1	挺好的，赞一个，手机很好，很喜欢
+0	手机还行，但是手机刚开箱时屏幕和背面有很多指纹痕迹，手机壳跟**在地上磨过似的，好几条印子。要不是看在能把这些痕迹擦掉，和闲退货麻烦，就给退了。就不能规规矩矩做生意么。还有送的都是什么吊东西，运动手环垃圾一比，贴在手机后面的固定手环还**是塑料的渡了一层银色，耳机也和图片描述不符，碎屏险已经注册，不知道怎么样。讲真的，要不就别送或者少送，要不，就规规矩矩的，不然到最后还让人觉得不舒服。其他没什么。
+-1	手机整体还可以，拍照也很清楚，也很流畅支持华为。给一星是因为有缺陷，送的耳机是坏的！评论区好评太多，需要一些差评来提醒下，以后更加注意细节，提升质量。
+0	前天刚买的，  看着还行， 指纹解锁反应不错。
+1	高端大气上档次。
+-1	各位小主，注意啦，耳机是没有的，需要单独买
+0	外观不错，感觉很耗电啊，在使用段时间评价
+1	手机非常好，很好用
+-1	没有发票，图片与实物不一致
+1	习惯在京东采购物品，方便快捷，及时开票进行报销，配送员服务也很周到！就是手机收到时没有电，感觉不大正常
+1	高端大气上档次啊！看电影玩游戏估计很爽！屏幕够大！
+
 ```
 
-Please see the
-[Google Cloud TPU tutorial](https://cloud.google.com/tpu/docs/tutorials/mnist)
-for how to use Cloud TPUs. Alternatively, you can use the Google Colab notebook
-"[BERT FineTuning with Cloud TPUs](https://colab.research.google.com/github/tensorflow/tpu/blob/master/tools/colab/bert_finetuning_with_cloud_tpus.ipynb)".
+数据总共8097条，按6:2:2的比例拆分成train.tsv,test.tsv ,dev.tsv三个数据文件
 
-On Cloud TPUs, the pretrained model and the output directory will need to be on
-Google Cloud Storage. For example, if you have a bucket named `some_bucket`, you
-might use the following flags instead:
+## 模型训练
+训练模型就直接使用BERT的分类方法，把原来的`run_classifier.py` 复制出来并修改为 `run_mobile.py`。关于训练的代码网上很多，就不展开说明了，主要有以下方法：
 
+```python
+#-----------------------------------------
+#手机评论情感分类数据处理 2019/3/12 
+#labels: -1负面 0中性 1正面
+class SetimentProcessor(DataProcessor):
+  def get_train_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+  def get_dev_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+  def get_test_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
+
+  def get_labels(self):
+    """See base class."""
+
+    """
+    if not os.path.exists(os.path.join(FLAGS.output_dir, 'label_list.pkl')):
+        with codecs.open(os.path.join(FLAGS.output_dir, 'label_list.pkl'), 'wb') as fd:
+            pickle.dump(self.labels, fd)
+    """
+    return ["-1", "0", "1"]
+
+  def _create_examples(self, lines, set_type):
+    """Creates examples for the training and dev sets."""
+    examples = []
+    for (i, line) in enumerate(lines):
+      if i == 0: 
+        continue
+      guid = "%s-%s" % (set_type, i)
+
+      #debug (by xmxoxo)
+      #print("read line: No.%d" % i)
+
+      text_a = tokenization.convert_to_unicode(line[1])
+      if set_type == "test":
+        label = "0"
+      else:
+        label = tokenization.convert_to_unicode(line[0])
+      examples.append(
+          InputExample(guid=guid, text_a=text_a, label=label))
+    return examples
+#-----------------------------------------
 ```
-  --output_dir=gs://some_bucket/my_output_dir/
+然后添加一个方法：
+
+```python
+  processors = {
+      "cola": ColaProcessor,
+      "mnli": MnliProcessor,
+      "mrpc": MrpcProcessor,
+      "xnli": XnliProcessor,
+      "setiment": SetimentProcessor, #2019/3/27 add by Echo
+  }
 ```
 
-The unzipped pre-trained model files can also be found in the Google Cloud
-Storage folder `gs://bert_models/2018_10_18`. For example:
+**特别说明**，这里有一点要注意，在后期部署的时候，需要一个label2id的字典，所以要在训练的时候就保存起来，在`convert_single_example`这个方法里增加一段：
 
+```python
+  #--- save label2id.pkl ---
+  #在这里输出label2id.pkl , add by xmxoxo 2019/2/27
+  output_label2id_file = os.path.join(FLAGS.output_dir, "label2id.pkl")
+  if not os.path.exists(output_label2id_file):
+    with open(output_label2id_file,'wb') as w:
+      pickle.dump(label_map,w)
+
+  #--- Add end ---
 ```
-export BERT_BASE_DIR=gs://bert_models/2018_10_18/uncased_L-12_H-768_A-12
-```
 
-### Sentence (and sentence-pair) classification tasks
+这样训练后就会生成这个文件了。
 
-Before running this example you must download the
-[GLUE data](https://gluebenchmark.com/tasks) by running
-[this script](https://gist.github.com/W4ngatang/60c2bdb54d156a41194446737ce03e2e)
-and unpack it to some directory `$GLUE_DIR`. Next, download the `BERT-Base`
-checkpoint and unzip it to some directory `$BERT_BASE_DIR`.
-
-This example code fine-tunes `BERT-Base` on the Microsoft Research Paraphrase
-Corpus (MRPC) corpus, which only contains 3,600 examples and can fine-tune in a
-few minutes on most GPUs.
+使用以下命令训练模型，目录参数请根据各自的情况修改：
 
 ```shell
-export BERT_BASE_DIR=/path/to/bert/uncased_L-12_H-768_A-12
-export GLUE_DIR=/path/to/glue
+cd /mnt/sda1/transdat/bert-demo/bert/
+export BERT_BASE_DIR=/mnt/sda1/transdat/bert-demo/bert/chinese_L-12_H-768_A-12
+export GLUE_DIR=/mnt/sda1/transdat/bert-demo/bert/data
+export TRAINED_CLASSIFIER=/mnt/sda1/transdat/bert-demo/bert/output
+export EXP_NAME=mobile_0
 
-python run_classifier.py \
-  --task_name=MRPC \
+sudo python run_mobile.py \
+  --task_name=setiment \
   --do_train=true \
   --do_eval=true \
-  --data_dir=$GLUE_DIR/MRPC \
+  --data_dir=$GLUE_DIR/$EXP_NAME \
   --vocab_file=$BERT_BASE_DIR/vocab.txt \
   --bert_config_file=$BERT_BASE_DIR/bert_config.json \
   --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
   --max_seq_length=128 \
   --train_batch_size=32 \
   --learning_rate=2e-5 \
-  --num_train_epochs=3.0 \
-  --output_dir=/tmp/mrpc_output/
+  --num_train_epochs=5.0 \
+  --output_dir=$TRAINED_CLASSIFIER/$EXP_NAME
+```
+由于数据比较小，训练是比较快的，训练完成后，可以在输出目录得到模型文件，这里的模型文件格式是.ckpt的。
+训练结果：
+```
+eval_accuracy = 0.861643
+eval_f1 = 0.9536328
+eval_loss = 0.56324786
+eval_precision = 0.9491279
+eval_recall = 0.9581805
+global_step = 759
+loss = 0.5615213
+
 ```
 
-You should see output like this:
-
-```
-***** Eval results *****
-  eval_accuracy = 0.845588
-  eval_loss = 0.505248
-  global_step = 343
-  loss = 0.505248
-```
-
-This means that the Dev set accuracy was 84.55%. Small sets like MRPC have a
-high variance in the Dev set accuracy, even when starting from the same
-pre-training checkpoint. If you re-run multiple times (making sure to point to
-different `output_dir`), you should see results between 84% and 88%.
-
-A few other pre-trained models are implemented off-the-shelf in
-`run_classifier.py`, so it should be straightforward to follow those examples to
-use BERT for any single-sentence or sentence-pair classification task.
-
-Note: You might see a message `Running train on CPU`. This really just means
-that it's running on something other than a Cloud TPU, which includes a GPU.
-
-#### Prediction from classifier
-
-Once you have trained your classifier you can use it in inference mode by using
-the --do_predict=true command. You need to have a file named test.tsv in the
-input folder. Output will be created in file called test_results.tsv in the
-output folder. Each line will contain output for each sample, columns are the
-class probabilities.
+可以使用以下语句来进行预测：
 
 ```shell
-export BERT_BASE_DIR=/path/to/bert/uncased_L-12_H-768_A-12
-export GLUE_DIR=/path/to/glue
-export TRAINED_CLASSIFIER=/path/to/fine/tuned/classifier
-
-python run_classifier.py \
-  --task_name=MRPC \
+sudo python run_mobile.py \
+  --task_name=setiment \
   --do_predict=true \
-  --data_dir=$GLUE_DIR/MRPC \
+  --data_dir=$GLUE_DIR/$EXP_NAME \
   --vocab_file=$BERT_BASE_DIR/vocab.txt \
   --bert_config_file=$BERT_BASE_DIR/bert_config.json \
-  --init_checkpoint=$TRAINED_CLASSIFIER \
+  --init_checkpoint=$TRAINED_CLASSIFIER/$EXP_NAME \
   --max_seq_length=128 \
-  --output_dir=/tmp/mrpc_output/
+  --output_dir=$TRAINED_CLASSIFIER/$EXP_NAME
+
 ```
 
-### SQuAD 1.1
 
-The Stanford Question Answering Dataset (SQuAD) is a popular question answering
-benchmark dataset. BERT (at the time of the release) obtains state-of-the-art
-results on SQuAD with almost no task-specific network architecture modifications
-or data augmentation. However, it does require semi-complex data pre-processing
-and post-processing to deal with (a) the variable-length nature of SQuAD context
-paragraphs, and (b) the character-level answer annotations which are used for
-SQuAD training. This processing is implemented and documented in `run_squad.py`.
+## 模型格式转化
 
-To run on SQuAD, you will first need to download the dataset. The
-[SQuAD website](https://rajpurkar.github.io/SQuAD-explorer/) does not seem to
-link to the v1.1 datasets any longer, but the necessary files can be found here:
+到这里我们已经训练得到了模型，但这个模型是.ckpt的文件格式,文件比较大，并且有三个文件：
 
-*   [train-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json)
-*   [dev-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json)
-*   [evaluate-v1.1.py](https://github.com/allenai/bi-att-flow/blob/master/squad/evaluate-v1.1.py)
+```
+-rw-r--r-- 1 root root 1227239468 Apr 15 17:46 model.ckpt-759.data-00000-of-00001
+-rw-r--r-- 1 root root      22717 Apr 15 17:46 model.ckpt-759.index
+-rw-r--r-- 1 root root    3948381 Apr 15 17:46 model.ckpt-759.meta
+```
 
-Download these to some directory `$SQUAD_DIR`.
-
-The state-of-the-art SQuAD results from the paper currently cannot be reproduced
-on a 12GB-16GB GPU due to memory constraints (in fact, even batch size 1 does
-not seem to fit on a 12GB GPU using `BERT-Large`). However, a reasonably strong
-`BERT-Base` model can be trained on the GPU with these hyperparameters:
+可以看到，模板文件非常大，大约有1.17G。
+后面使用的模型服务端，使用的是.pb格式的模型文件，所以需要把生成的ckpt格式模型文件转换成.pb格式的模型文件。
+我这里提供了一个转换工具:`freeze_graph.py`，使用如下：
 
 ```shell
-python run_squad.py \
-  --vocab_file=$BERT_BASE_DIR/vocab.txt \
-  --bert_config_file=$BERT_BASE_DIR/bert_config.json \
-  --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
-  --do_train=True \
-  --train_file=$SQUAD_DIR/train-v1.1.json \
-  --do_predict=True \
-  --predict_file=$SQUAD_DIR/dev-v1.1.json \
-  --train_batch_size=12 \
-  --learning_rate=3e-5 \
-  --num_train_epochs=2.0 \
-  --max_seq_length=384 \
-  --doc_stride=128 \
-  --output_dir=/tmp/squad_base/
+usage: freeze_graph.py [-h] -bert_model_dir BERT_MODEL_DIR -model_dir
+                       MODEL_DIR [-model_pb_dir MODEL_PB_DIR]
+                       [-max_seq_len MAX_SEQ_LEN] [-num_labels NUM_LABELS]
+                       [-verbose]
 ```
 
-The dev set predictions will be saved into a file called `predictions.json` in
-the `output_dir`:
+这里要注意的参数是：
+
+* `model_dir` 就是训练好的.ckpt文件所在的目录
+* `max_seq_len` 要与原来一致；
+* `num_labels` 是分类标签的个数,本例中是3个
+
 
 ```shell
-python $SQUAD_DIR/evaluate-v1.1.py $SQUAD_DIR/dev-v1.1.json ./squad/predictions.json
+python freeze_graph.py \
+    -bert_model_dir $BERT_BASE_DIR \
+    -model_dir $TRAINED_CLASSIFIER/$EXP_NAME \
+    -max_seq_len 128 \
+    -num_labels 3
+
 ```
 
-Which should produce an output like this:
+执行成功后可以看到在`model_dir`目录会生成一个`classification_model.pb` 文件。
+转为.pb格式的模型文件，同时也可以缩小模型文件的大小,可以看到转化后的模型文件大约是390M。
+
+```
+-rw-rw-r-- 1 hexi hexi 409326375 Apr 15 17:58 classification_model.pb
+```
+
+## 服务端部署与启动
+
+现在可以安装服务端了，使用的是 bert-base, 来自于项目`BERT-BiLSTM-CRF-NER`, 服务端只是该项目中的一个部分。
+项目地址：[https://github.com/macanv/BERT-BiLSTM-CRF-NER](https://github.com/macanv/BERT-BiLSTM-CRF-NER) ，感谢Macanv同学提供这么好的项目。
+
+这里要说明一下，我们经常会看到bert-as-service 这个项目的介绍，它只能加载BERT的预训练模型，输出文本向量化的结果。
+而如果要加载fine-turing后的模型，就要用到 bert-base 了，详请请见：
+[基于BERT预训练的中文命名实体识别TensorFlow实现](https://blog.csdn.net/macanv/article/details/85684284)
+
+
+下载代码并安装 ：
+```shell
+pip install bert-base==0.0.7 -i https://pypi.python.org/simple
+```
+或者 
 
 ```shell
-{"f1": 88.41249612335034, "exact_match": 81.2488174077578}
+git clone https://github.com/macanv/BERT-BiLSTM-CRF-NER
+cd BERT-BiLSTM-CRF-NER/
+python3 setup.py install
 ```
 
-You should see a result similar to the 88.5% reported in the paper for
-`BERT-Base`.
 
-If you have access to a Cloud TPU, you can train with `BERT-Large`. Here is a
-set of hyperparameters (slightly different than the paper) which consistently
-obtain around 90.5%-91.0% F1 single-system trained only on SQuAD:
+使用 bert-base 有三种运行模式，分别支持三种模型，使用参数`-mode` 来指定：
++ NER      序列标注类型，比如命名实体识别；
++ CLASS    分类模型，就是本文中使用的模型
++ BERT     这个就是跟bert-as-service 一样的模式了
+
+之所以要分成不同的运行模式，是因为不同模型对输入内容的预处理是不同的，命名实体识别NER是要进行序列标注；
+而分类模型只要返回label就可以了。
+
+
+安装完后运行服务，同时指定监听 HTTP 8091端口，并使用GPU 1来跑；
 
 ```shell
-python run_squad.py \
-  --vocab_file=$BERT_LARGE_DIR/vocab.txt \
-  --bert_config_file=$BERT_LARGE_DIR/bert_config.json \
-  --init_checkpoint=$BERT_LARGE_DIR/bert_model.ckpt \
-  --do_train=True \
-  --train_file=$SQUAD_DIR/train-v1.1.json \
-  --do_predict=True \
-  --predict_file=$SQUAD_DIR/dev-v1.1.json \
-  --train_batch_size=24 \
-  --learning_rate=3e-5 \
-  --num_train_epochs=2.0 \
-  --max_seq_length=384 \
-  --doc_stride=128 \
-  --output_dir=gs://some_bucket/squad_large/ \
-  --use_tpu=True \
-  --tpu_name=$TPU_NAME
+cd /mnt/sda1/transdat/bert-demo/bert/bert_svr
+
+export BERT_BASE_DIR=/mnt/sda1/transdat/bert-demo/bert/chinese_L-12_H-768_A-12
+export TRAINED_CLASSIFIER=/mnt/sda1/transdat/bert-demo/bert/output
+export EXP_NAME=mobile_0
+
+bert-base-serving-start \
+    -model_dir $TRAINED_CLASSIFIER/$EXP_NAME \
+    -bert_model_dir $BERT_BASE_DIR \
+    -model_pb_dir $TRAINED_CLASSIFIER/$EXP_NAME \
+    -mode CLASS \
+    -max_seq_len 128 \
+    -http_port 8091 \
+    -port 5575 \
+    -port_out 5576 \
+    -device_map 1 
+```
+**注意**：port 和 port_out 这两个参数是API调用的端口号，
+默认是5555和5556,如果你准备部署多个模型服务实例，那一定要指定自己的端口号，避免冲突。
+我这里是改为： 5575 和 5576
+
+如果报错没运行起来，可能是有些模块没装上,都是 bert_base/server/http.py里引用的，装上就好了：
+
+```
+sudo pip install flask 
+sudo pip install flask_compress
+sudo pip install flask_cors
+sudo pip install flask_json
 ```
 
-For example, one random run with these parameters produces the following Dev
-scores:
+我这里的配置是2个GTX 1080 Ti，这个时候双卡的优势终于发挥出来了，GPU 1用于预测，GPU 0还可以继续训练模型。
+
+运行服务后会自动生成很多临时的目录和文件，为了方便管理与启动，可建立一个工作目录，并把启动命令写成一个shell脚本。
+这里创建的是`mobile_svr\bertsvr.sh` ，这样可以比较方便地设置服务器启动时自动启动服务，另外增加了每次启动时自动清除临时文件
+
+代码如下：
 
 ```shell
-{"f1": 90.87081895814865, "exact_match": 84.38978240302744}
+#!/bin/bash
+#chkconfig: 2345 80 90
+#description: 启动BERT分类模型 
+
+echo '正在启动 BERT mobile svr...'
+cd /mnt/sda1/transdat/bert-demo/bert/mobile_svr
+sudo rm -rf tmp*
+
+export BERT_BASE_DIR=/mnt/sda1/transdat/bert-demo/bert/chinese_L-12_H-768_A-12
+export TRAINED_CLASSIFIER=/mnt/sda1/transdat/bert-demo/bert/output
+export EXP_NAME=mobile_0
+
+bert-base-serving-start \
+    -model_dir $TRAINED_CLASSIFIER/$EXP_NAME \
+    -bert_model_dir $BERT_BASE_DIR \
+    -model_pb_dir $TRAINED_CLASSIFIER/$EXP_NAME \
+    -mode CLASS \
+    -max_seq_len 128 \
+    -http_port 8091 \
+    -port 5575 \
+    -port_out 5576 \
+    -device_map 1 
+
 ```
 
-If you fine-tune for one epoch on
-[TriviaQA](http://nlp.cs.washington.edu/triviaqa/) before this the results will
-be even better, but you will need to convert TriviaQA into the SQuAD json
-format.
+补充说明一下内存的使用情况：
+BERT在训练时需要加载完整的模型数据，要用的内存是比较多的，差不多要10G，我这里用的是GTX 1080 Ti 11G。
+但在训练完后，按上面的方式部署加载pb模型文件时，就不需要那么大了，上面也可以看到pb模型文件就是390M。
+其实只要你使用的是BERT base 预训练模型，最终的得到的pb文件大小都是差不多的。
 
-### SQuAD 2.0
+还有同学问到能不能用CPU来部署，我这里没尝试过，但我想肯定是可以的，只是在计算速度上跟GPU会有差别。
 
-This model is also implemented and documented in `run_squad.py`.
+我这里使用GPU 1来实时预测，同时加载了2个BERT模型,截图如下:
 
-To run on SQuAD 2.0, you will first need to download the dataset. The necessary
-files can be found here:
+![GPU截图](https://github.com/xmxoxo/BERT-train2deploy/blob/master/images/cap02.png?raw=true)
 
-*   [train-v2.0.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v2.0.json)
-*   [dev-v2.0.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v2.0.json)
-*   [evaluate-v2.0.py](https://worksheets.codalab.org/rest/bundles/0x6b567e1cf2e041ec80d7098f031c5c9e/contents/blob/)
 
-Download these to some directory `$SQUAD_DIR`.
+### 端口测试
 
-On Cloud TPU you can run with BERT-Large as follows:
+模型服务端部署完成了，可以使用curl命令来测试一下它的运行情况。
 
 ```shell
-python run_squad.py \
-  --vocab_file=$BERT_LARGE_DIR/vocab.txt \
-  --bert_config_file=$BERT_LARGE_DIR/bert_config.json \
-  --init_checkpoint=$BERT_LARGE_DIR/bert_model.ckpt \
-  --do_train=True \
-  --train_file=$SQUAD_DIR/train-v2.0.json \
-  --do_predict=True \
-  --predict_file=$SQUAD_DIR/dev-v2.0.json \
-  --train_batch_size=24 \
-  --learning_rate=3e-5 \
-  --num_train_epochs=2.0 \
-  --max_seq_length=384 \
-  --doc_stride=128 \
-  --output_dir=gs://some_bucket/squad_large/ \
-  --use_tpu=True \
-  --tpu_name=$TPU_NAME \
-  --version_2_with_negative=True
-```
-
-We assume you have copied everything from the output directory to a local
-directory called ./squad/. The initial dev set predictions will be at
-./squad/predictions.json and the differences between the score of no answer ("")
-and the best non-null answer for each question will be in the file
-./squad/null_odds.json
-
-Run this script to tune a threshold for predicting null versus non-null answers:
-
-python $SQUAD_DIR/evaluate-v2.0.py $SQUAD_DIR/dev-v2.0.json
-./squad/predictions.json --na-prob-file ./squad/null_odds.json
-
-Assume the script outputs "best_f1_thresh" THRESH. (Typical values are between
--1.0 and -5.0). You can now re-run the model to generate predictions with the
-derived threshold or alternatively you can extract the appropriate answers from
-./squad/nbest_predictions.json.
-
-```shell
-python run_squad.py \
-  --vocab_file=$BERT_LARGE_DIR/vocab.txt \
-  --bert_config_file=$BERT_LARGE_DIR/bert_config.json \
-  --init_checkpoint=$BERT_LARGE_DIR/bert_model.ckpt \
-  --do_train=False \
-  --train_file=$SQUAD_DIR/train-v2.0.json \
-  --do_predict=True \
-  --predict_file=$SQUAD_DIR/dev-v2.0.json \
-  --train_batch_size=24 \
-  --learning_rate=3e-5 \
-  --num_train_epochs=2.0 \
-  --max_seq_length=384 \
-  --doc_stride=128 \
-  --output_dir=gs://some_bucket/squad_large/ \
-  --use_tpu=True \
-  --tpu_name=$TPU_NAME \
-  --version_2_with_negative=True \
-  --null_score_diff_threshold=$THRESH
-```
-
-### Out-of-memory issues
-
-All experiments in the paper were fine-tuned on a Cloud TPU, which has 64GB of
-device RAM. Therefore, when using a GPU with 12GB - 16GB of RAM, you are likely
-to encounter out-of-memory issues if you use the same hyperparameters described
-in the paper.
-
-The factors that affect memory usage are:
-
-*   **`max_seq_length`**: The released models were trained with sequence lengths
-    up to 512, but you can fine-tune with a shorter max sequence length to save
-    substantial memory. This is controlled by the `max_seq_length` flag in our
-    example code.
-
-*   **`train_batch_size`**: The memory usage is also directly proportional to
-    the batch size.
-
-*   **Model type, `BERT-Base` vs. `BERT-Large`**: The `BERT-Large` model
-    requires significantly more memory than `BERT-Base`.
-
-*   **Optimizer**: The default optimizer for BERT is Adam, which requires a lot
-    of extra memory to store the `m` and `v` vectors. Switching to a more memory
-    efficient optimizer can reduce memory usage, but can also affect the
-    results. We have not experimented with other optimizers for fine-tuning.
-
-Using the default training scripts (`run_classifier.py` and `run_squad.py`), we
-benchmarked the maximum batch size on single Titan X GPU (12GB RAM) with
-TensorFlow 1.11.0:
-
-System       | Seq Length | Max Batch Size
------------- | ---------- | --------------
-`BERT-Base`  | 64         | 64
-...          | 128        | 32
-...          | 256        | 16
-...          | 320        | 14
-...          | 384        | 12
-...          | 512        | 6
-`BERT-Large` | 64         | 12
-...          | 128        | 6
-...          | 256        | 2
-...          | 320        | 1
-...          | 384        | 0
-...          | 512        | 0
-
-Unfortunately, these max batch sizes for `BERT-Large` are so small that they
-will actually harm the model accuracy, regardless of the learning rate used. We
-are working on adding code to this repository which will allow much larger
-effective batch sizes to be used on the GPU. The code will be based on one (or
-both) of the following techniques:
-
-*   **Gradient accumulation**: The samples in a minibatch are typically
-    independent with respect to gradient computation (excluding batch
-    normalization, which is not used here). This means that the gradients of
-    multiple smaller minibatches can be accumulated before performing the weight
-    update, and this will be exactly equivalent to a single larger update.
-
-*   [**Gradient checkpointing**](https://github.com/openai/gradient-checkpointing):
-    The major use of GPU/TPU memory during DNN training is caching the
-    intermediate activations in the forward pass that are necessary for
-    efficient computation in the backward pass. "Gradient checkpointing" trades
-    memory for compute time by re-computing the activations in an intelligent
-    way.
-
-**However, this is not implemented in the current release.**
-
-## Using BERT to extract fixed feature vectors (like ELMo)
-
-In certain cases, rather than fine-tuning the entire pre-trained model
-end-to-end, it can be beneficial to obtained *pre-trained contextual
-embeddings*, which are fixed contextual representations of each input token
-generated from the hidden layers of the pre-trained model. This should also
-mitigate most of the out-of-memory issues.
-
-As an example, we include the script `extract_features.py` which can be used
-like this:
-
-```shell
-# Sentence A and Sentence B are separated by the ||| delimiter for sentence
-# pair tasks like question answering and entailment.
-# For single sentence inputs, put one sentence per line and DON'T use the
-# delimiter.
-echo 'Who was Jim Henson ? ||| Jim Henson was a puppeteer' > /tmp/input.txt
-
-python extract_features.py \
-  --input_file=/tmp/input.txt \
-  --output_file=/tmp/output.jsonl \
-  --vocab_file=$BERT_BASE_DIR/vocab.txt \
-  --bert_config_file=$BERT_BASE_DIR/bert_config.json \
-  --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
-  --layers=-1,-2,-3,-4 \
-  --max_seq_length=128 \
-  --batch_size=8
-```
-
-This will create a JSON file (one line per line of input) containing the BERT
-activations from each Transformer layer specified by `layers` (-1 is the final
-hidden layer of the Transformer, etc.)
-
-Note that this script will produce very large output files (by default, around
-15kb for every input token).
-
-If you need to maintain alignment between the original and tokenized words (for
-projecting training labels), see the [Tokenization](#tokenization) section
-below.
-
-**Note:** You may see a message like `Could not find trained model in model_dir:
-/tmp/tmpuB5g5c, running initialization to predict.` This message is expected, it
-just means that we are using the `init_from_checkpoint()` API rather than the
-saved model API. If you don't specify a checkpoint or specify an invalid
-checkpoint, this script will complain.
-
-## Tokenization
-
-For sentence-level tasks (or sentence-pair) tasks, tokenization is very simple.
-Just follow the example code in `run_classifier.py` and `extract_features.py`.
-The basic procedure for sentence-level tasks is:
-
-1.  Instantiate an instance of `tokenizer = tokenization.FullTokenizer`
-
-2.  Tokenize the raw text with `tokens = tokenizer.tokenize(raw_text)`.
-
-3.  Truncate to the maximum sequence length. (You can use up to 512, but you
-    probably want to use shorter if possible for memory and speed reasons.)
-
-4.  Add the `[CLS]` and `[SEP]` tokens in the right place.
-
-Word-level and span-level tasks (e.g., SQuAD and NER) are more complex, since
-you need to maintain alignment between your input text and output text so that
-you can project your training labels. SQuAD is a particularly complex example
-because the input labels are *character*-based, and SQuAD paragraphs are often
-longer than our maximum sequence length. See the code in `run_squad.py` to show
-how we handle this.
-
-Before we describe the general recipe for handling word-level tasks, it's
-important to understand what exactly our tokenizer is doing. It has three main
-steps:
-
-1.  **Text normalization**: Convert all whitespace characters to spaces, and
-    (for the `Uncased` model) lowercase the input and strip out accent markers.
-    E.g., `John Johanson's, → john johanson's,`.
-
-2.  **Punctuation splitting**: Split *all* punctuation characters on both sides
-    (i.e., add whitespace around all punctuation characters). Punctuation
-    characters are defined as (a) Anything with a `P*` Unicode class, (b) any
-    non-letter/number/space ASCII character (e.g., characters like `$` which are
-    technically not punctuation). E.g., `john johanson's, → john johanson ' s ,`
-
-3.  **WordPiece tokenization**: Apply whitespace tokenization to the output of
-    the above procedure, and apply
-    [WordPiece](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/text_encoder.py)
-    tokenization to each token separately. (Our implementation is directly based
-    on the one from `tensor2tensor`, which is linked). E.g., `john johanson ' s
-    , → john johan ##son ' s ,`
-
-The advantage of this scheme is that it is "compatible" with most existing
-English tokenizers. For example, imagine that you have a part-of-speech tagging
-task which looks like this:
+curl -X POST http://192.168.15.111:8091/encode \
+  -H 'content-type: application/json' \
+  -d '{"id": 111,"texts": ["总的来说，这款手机性价比是特别高的。","槽糕的售后服务！！！店大欺客"], "is_tokenized": false}'
 
 ```
-Input:  John Johanson 's   house
-Labels: NNP  NNP      POS NN
+
+执行结果：
 ```
-
-The tokenized output will look like this:
+>   -H 'content-type: application/json' \
+>   -d '{"id": 111,"texts": ["总的来说，这款手机性价比是特别高的。","槽糕的售后服务！！！店大欺客"], "is_tokenized": false}'
+{"id":111,"result":[{"pred_label":["1","-1"],"score":[0.9974544644355774,0.9961422085762024]}],"status":200}
 
 ```
-Tokens: john johan ##son ' s house
-```
+可以看到对应的两个评论，预测结果一个是1，另一个是-1，计算的速度还是非常很快的。
+通过这种方式来调用还是不太方便，知道了这个通讯方式，我们可以用flask编写一个API服务，
+为所有的应用统一提供服务。
 
-Crucially, this would be the same output as if the raw text were `John
-Johanson's house` (with no space before the `'s`).
 
-If you have a pre-tokenized representation with word-level annotations, you can
-simply tokenize each input word independently, and deterministically maintain an
-original-to-tokenized alignment:
+## API服务编写与部署
+
+为了方便客户端的调用，同时也为了可以对多个语句进行预测，我们用flask编写一个API服务端，使用更简洁的方式来与客户端（应用）来通讯。
+整个API服务端放在独立目录`/mobile_apisvr/`目录下。
+
+用flask创建服务端并调用主方法,命令行参数如下：
 
 ```python
-### Input
-orig_tokens = ["John", "Johanson", "'s",  "house"]
-labels      = ["NNP",  "NNP",      "POS", "NN"]
+def main_cli ():
+    pass
+    parser = argparse.ArgumentParser(description='API demo server')
+    parser.add_argument('-ip', type=str, default="0.0.0.0",
+                        help='chinese google bert model serving')
+    parser.add_argument('-port', type=int, default=8910,
+                        help='listen port,default:8910')
 
-### Output
-bert_tokens = []
+    args = parser.parse_args()
 
-# Token map will be an int -> int mapping between the `orig_tokens` index and
-# the `bert_tokens` index.
-orig_to_tok_map = []
+    flask_server(args)
 
-tokenizer = tokenization.FullTokenizer(
-    vocab_file=vocab_file, do_lower_case=True)
-
-bert_tokens.append("[CLS]")
-for orig_token in orig_tokens:
-  orig_to_tok_map.append(len(bert_tokens))
-  bert_tokens.extend(tokenizer.tokenize(orig_token))
-bert_tokens.append("[SEP]")
-
-# bert_tokens == ["[CLS]", "john", "johan", "##son", "'", "s", "house", "[SEP]"]
-# orig_to_tok_map == [1, 2, 4, 6]
 ```
 
-Now `orig_to_tok_map` can be used to project `labels` to the tokenized
-representation.
+主方法里创建APP对象：
 
-There are common English tokenization schemes which will cause a slight mismatch
-between how BERT was pre-trained. For example, if your input tokenization splits
-off contractions like `do n't`, this will cause a mismatch. If it is possible to
-do so, you should pre-process your data to convert these back to raw-looking
-text, but if it's not possible, this mismatch is likely not a big deal.
+```python
 
-## Pre-training with BERT
+    app.run(
+        host = args.ip,     #'0.0.0.0',
+        port = args.port,   #8910,  
+        debug = True 
+    )
 
-We are releasing code to do "masked LM" and "next sentence prediction" on an
-arbitrary text corpus. Note that this is *not* the exact code that was used for
-the paper (the original code was written in C++, and had some additional
-complexity), but this code does generate pre-training data as described in the
-paper.
+```
 
-Here's how to run the data generation. The input is a plain text file, with one
-sentence per line. (It is important that these be actual sentences for the "next
-sentence prediction" task). Documents are delimited by empty lines. The output
-is a set of `tf.train.Example`s serialized into `TFRecord` file format.
+这里的接口简单规划为`/api/v0.1/query`, 使用POST方法，参数名为'text'，使用JSON返回结果；
+路由配置:
 
-You can perform sentence segmentation with an off-the-shelf NLP toolkit such as
-[spaCy](https://spacy.io/). The `create_pretraining_data.py` script will
-concatenate segments until they reach the maximum sequence length to minimize
-computational waste from padding (see the script for more details). However, you
-may want to intentionally add a slight amount of noise to your input data (e.g.,
-randomly truncate 2% of input segments) to make it more robust to non-sentential
-input during fine-tuning.
+```python
+@app.route('/api/v0.1/query', methods=['POST'])
+```
 
-This script stores all of the examples for the entire input file in memory, so
-for large data files you should shard the input file and call the script
-multiple times. (You can pass in a file glob to `run_pretraining.py`, e.g.,
-`tf_examples.tf_record*`.)
+API服务端的核心方法，是与BERT-Serving进行通讯，需要创建一个客户端BertClient：
 
-The `max_predictions_per_seq` is the maximum number of masked LM predictions per
-sequence. You should set this to around `max_seq_length` * `masked_lm_prob` (the
-script doesn't do that automatically because the exact value needs to be passed
-to both scripts).
+```python
+#对句子进行预测识别
+def class_pred(list_text):
+    #文本拆分成句子
+    #list_text = cut_sent(text)
+    print("total setance: %d" % (len(list_text)) )
+    with BertClient(ip='192.168.15.111', port=5575, port_out=5576, show_server_config=False, check_version=False, check_length=False,timeout=10000 ,  mode='CLASS') as bc:
+        start_t = time.perf_counter()
+        rst = bc.encode(list_text)
+        print('result:', rst)
+        print('time used:{}'.format(time.perf_counter() - start_t))
+    #返回结构为：
+    # rst: [{'pred_label': ['0', '1', '0'], 'score': [0.9983683228492737, 0.9988993406295776, 0.9997349381446838]}]
+    #抽取出标注结果
+    pred_label = rst[0]["pred_label"]
+    result_txt = [ [pred_label[i],list_text[i] ] for i in range(len(pred_label))]
+    return result_txt
+
+```
+注意：这里的IP，端口要与服务端的对应。
+
+运行API 服务端：
 
 ```shell
-python create_pretraining_data.py \
-  --input_file=./sample_text.txt \
-  --output_file=/tmp/tf_examples.tfrecord \
-  --vocab_file=$BERT_BASE_DIR/vocab.txt \
-  --do_lower_case=True \
-  --max_seq_length=128 \
-  --max_predictions_per_seq=20 \
-  --masked_lm_prob=0.15 \
-  --random_seed=12345 \
-  --dupe_factor=5
+python api_service.py
 ```
+在代码中的debug设置为True，这样只要更新文件，服务就会自动重新启动，比较方便调试。
+运行截图如下：
 
-Here's how to run the pre-training. Do not include `init_checkpoint` if you are
-pre-training from scratch. The model configuration (including vocab size) is
-specified in `bert_config_file`. This demo code only pre-trains for a small
-number of steps (20), but in practice you will probably want to set
-`num_train_steps` to 10000 steps or more. The `max_seq_length` and
-`max_predictions_per_seq` parameters passed to `run_pretraining.py` must be the
-same as `create_pretraining_data.py`.
+![API服务端](https://github.com/xmxoxo/BERT-train2deploy/blob/master/images/cap00.png?raw=true)
 
-```shell
-python run_pretraining.py \
-  --input_file=/tmp/tf_examples.tfrecord \
-  --output_dir=/tmp/pretraining_output \
-  --do_train=True \
-  --do_eval=True \
-  --bert_config_file=$BERT_BASE_DIR/bert_config.json \
-  --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
-  --train_batch_size=32 \
-  --max_seq_length=128 \
-  --max_predictions_per_seq=20 \
-  --num_train_steps=20 \
-  --num_warmup_steps=10 \
-  --learning_rate=2e-5
-```
 
-This will produce an output like this:
+到这一步也可以使用curl或者其它工具进行测试，也可以等完成网页客户端后一并调试。
+我这里使用chrome插件 API-debug来进行测试，如下图：
 
-```
-***** Eval results *****
-  global_step = 20
-  loss = 0.0979674
-  masked_lm_accuracy = 0.985479
-  masked_lm_loss = 0.0979328
-  next_sentence_accuracy = 1.0
-  next_sentence_loss = 3.45724e-05
-```
+![API测试](https://github.com/xmxoxo/BERT-train2deploy/blob/master/images/cap01.png?raw=true)
 
-Note that since our `sample_text.txt` file is very small, this example training
-will overfit that data in only a few steps and produce unrealistically high
-accuracy numbers.
 
-### Pre-training tips and caveats
 
-*   **If using your own vocabulary, make sure to change `vocab_size` in
-    `bert_config.json`. If you use a larger vocabulary without changing this,
-    you will likely get NaNs when training on GPU or TPU due to unchecked
-    out-of-bounds access.**
-*   If your task has a large domain-specific corpus available (e.g., "movie
-    reviews" or "scientific papers"), it will likely be beneficial to run
-    additional steps of pre-training on your corpus, starting from the BERT
-    checkpoint.
-*   The learning rate we used in the paper was 1e-4. However, if you are doing
-    additional steps of pre-training starting from an existing BERT checkpoint,
-    you should use a smaller learning rate (e.g., 2e-5).
-*   Current BERT models are English-only, but we do plan to release a
-    multilingual model which has been pre-trained on a lot of languages in the
-    near future (hopefully by the end of November 2018).
-*   Longer sequences are disproportionately expensive because attention is
-    quadratic to the sequence length. In other words, a batch of 64 sequences of
-    length 512 is much more expensive than a batch of 256 sequences of
-    length 128. The fully-connected/convolutional cost is the same, but the
-    attention cost is far greater for the 512-length sequences. Therefore, one
-    good recipe is to pre-train for, say, 90,000 steps with a sequence length of
-    128 and then for 10,000 additional steps with a sequence length of 512. The
-    very long sequences are mostly needed to learn positional embeddings, which
-    can be learned fairly quickly. Note that this does require generating the
-    data twice with different values of `max_seq_length`.
-*   If you are pre-training from scratch, be prepared that pre-training is
-    computationally expensive, especially on GPUs. If you are pre-training from
-    scratch, our recommended recipe is to pre-train a `BERT-Base` on a single
-    [preemptible Cloud TPU v2](https://cloud.google.com/tpu/docs/pricing), which
-    takes about 2 weeks at a cost of about $500 USD (based on the pricing in
-    October 2018). You will have to scale down the batch size when only training
-    on a single Cloud TPU, compared to what was used in the paper. It is
-    recommended to use the largest batch size that fits into TPU memory.
 
-### Pre-training data
+## 客户端(网页端）
 
-We will **not** be able to release the pre-processed datasets used in the paper.
-For Wikipedia, the recommended pre-processing is to download
-[the latest dump](https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2),
-extract the text with
-[`WikiExtractor.py`](https://github.com/attardi/wikiextractor), and then apply
-any necessary cleanup to convert it into plain text.
+这里使用一个HTML页面来模拟客户端，在实际项目中可能是具体的应用。
+为了方便演示就把网页模板与API服务端合并在一起了，在网页端使用AJAX来与API服务端通讯。
 
-Unfortunately the researchers who collected the
-[BookCorpus](http://yknzhu.wixsite.com/mbweb) no longer have it available for
-public download. The
-[Project Guttenberg Dataset](https://web.eecs.umich.edu/~lahiri/gutenberg_dataset.html)
-is a somewhat smaller (200M word) collection of older books that are public
-domain.
+创建模板目录`templates`，使用模板来加载一个HTML,模板文件名为`index.html`。
+在HTML页面里使用AJAX来调用接口,由于是在同一个服务器，同一个端口，地址直接用`/api/v0.1/query`就可以了，
+在实际项目中，客户应用端与API是分开的，则需要指定接口URL地址，同时还要注意数据安全性。
+代码如下：
 
-[Common Crawl](http://commoncrawl.org/) is another very large collection of
-text, but you will likely have to do substantial pre-processing and cleanup to
-extract a usable corpus for pre-training BERT.
-
-### Learning a new WordPiece vocabulary
-
-This repository does not include code for *learning* a new WordPiece vocabulary.
-The reason is that the code used in the paper was implemented in C++ with
-dependencies on Google's internal libraries. For English, it is almost always
-better to just start with our vocabulary and pre-trained models. For learning
-vocabularies of other languages, there are a number of open source options
-available. However, keep in mind that these are not compatible with our
-`tokenization.py` library:
-
-*   [Google's SentencePiece library](https://github.com/google/sentencepiece)
-
-*   [tensor2tensor's WordPiece generation script](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/text_encoder_build_subword.py)
-
-*   [Rico Sennrich's Byte Pair Encoding library](https://github.com/rsennrich/subword-nmt)
-
-## Using BERT in Colab
-
-If you want to use BERT with [Colab](https://colab.research.google.com), you can
-get started with the notebook
-"[BERT FineTuning with Cloud TPUs](https://colab.research.google.com/github/tensorflow/tpu/blob/master/tools/colab/bert_finetuning_with_cloud_tpus.ipynb)".
-**At the time of this writing (October 31st, 2018), Colab users can access a
-Cloud TPU completely for free.** Note: One per user, availability limited,
-requires a Google Cloud Platform account with storage (although storage may be
-purchased with free credit for signing up with GCP), and this capability may not
-longer be available in the future. Click on the BERT Colab that was just linked
-for more information.
-
-## FAQ
-
-#### Is this code compatible with Cloud TPUs? What about GPUs?
-
-Yes, all of the code in this repository works out-of-the-box with CPU, GPU, and
-Cloud TPU. However, GPU training is single-GPU only.
-
-#### I am getting out-of-memory errors, what is wrong?
-
-See the section on [out-of-memory issues](#out-of-memory-issues) for more
-information.
-
-#### Is there a PyTorch version available?
-
-There is no official PyTorch implementation. However, NLP researchers from
-HuggingFace made a
-[PyTorch version of BERT available](https://github.com/huggingface/pytorch-pretrained-BERT)
-which is compatible with our pre-trained checkpoints and is able to reproduce
-our results. We were not involved in the creation or maintenance of the PyTorch
-implementation so please direct any questions towards the authors of that
-repository.
-
-#### Is there a Chainer version available?
-
-There is no official Chainer implementation. However, Sosuke Kobayashi made a
-[Chainer version of BERT available](https://github.com/soskek/bert-chainer)
-which is compatible with our pre-trained checkpoints and is able to reproduce
-our results. We were not involved in the creation or maintenance of the Chainer
-implementation so please direct any questions towards the authors of that
-repository.
-
-#### Will models in other languages be released?
-
-Yes, we plan to release a multi-lingual BERT model in the near future. We cannot
-make promises about exactly which languages will be included, but it will likely
-be a single model which includes *most* of the languages which have a
-significantly-sized Wikipedia.
-
-#### Will models larger than `BERT-Large` be released?
-
-So far we have not attempted to train anything larger than `BERT-Large`. It is
-possible that we will release larger models if we are able to obtain significant
-improvements.
-
-#### What license is this library released under?
-
-All code *and* models are released under the Apache 2.0 license. See the
-`LICENSE` file for more information.
-
-#### How do I cite BERT?
-
-For now, cite [the Arxiv paper](https://arxiv.org/abs/1810.04805):
-
-```
-@article{devlin2018bert,
-  title={BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding},
-  author={Devlin, Jacob and Chang, Ming-Wei and Lee, Kenton and Toutanova, Kristina},
-  journal={arXiv preprint arXiv:1810.04805},
-  year={2018}
+```Javascript
+function UrlPOST(txt,myfun){
+	if (txt=="")
+	{
+		return "error parm"; 
+	}
+	var httpurl = "/api/v0.1/query"; 
+	$.ajax({
+			type: "POST",
+			data: "text="+txt,
+			url: httpurl,
+			//async:false,
+			success: function(data)
+			{   
+				myfun(data);
+			}
+	});
 }
+
 ```
 
-If we submit the paper to a conference or journal, we will update the BibTeX.
+启动API服务端后，可以使用`IP+端口`来访问了，这里的地址是`http://192.168.15.111:8910/`
 
-## Disclaimer
 
-This is not an official Google product.
 
-## Contact information
 
-For help or issues using BERT, please submit a GitHub issue.
+## 参考资料:
++ [https://github.com/google-research/bert](https://github.com/google-research/bert)
+      
++ [https://github.com/hanxiao/bert-as-service](https://github.com/hanxiao/bert-as-service)
 
-For personal communication related to BERT, please contact Jacob Devlin
-(`jacobdevlin@google.com`), Ming-Wei Chang (`mingweichang@google.com`), or
-Kenton Lee (`kentonl@google.com`).
++ [https://github.com/macanv/BERT-BiLSTM-CRF-NER](https://github.com/macanv/BERT-BiLSTM-CRF-NER)
+
+
+
